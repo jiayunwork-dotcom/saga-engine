@@ -1,23 +1,30 @@
 import { useState, useEffect } from 'react'
 import { 
-  Card, Form, Input, Button, Space, List, Modal, Select, 
-  InputNumber, message, Drawer, Tag 
+  Card, Form, Input, Button, Space, Tabs, Empty, message, Tag,
+  Row, Col, Statistic, Alert
 } from 'antd'
-import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
+import { 
+  ArrowLeftOutlined, 
+  SaveOutlined, 
+  PlayCircleOutlined,
+  SwapOutlined,
+  SyncOutlined,
+  InfoCircleOutlined
+} from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import FlowEditor from '../components/FlowEditor/FlowEditor.jsx'
 
 const SagaDefinitionEditor = () => {
   const navigate = useNavigate()
   const { id } = useParams()
   const { isAdmin } = useAuthStore()
   const [form] = Form.useForm()
-  const [steps, setSteps] = useState([])
-  const [stepModalVisible, setStepModalVisible] = useState(false)
-  const [editingStep, setEditingStep] = useState(null)
-  const [stepForm] = Form.useForm()
   const isEdit = !!id
+  const [steps, setSteps] = useState([])
+  const [edges, setEdges] = useState([])
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (isEdit) {
@@ -26,6 +33,7 @@ const SagaDefinitionEditor = () => {
   }, [id])
 
   const loadDefinition = async () => {
+    setLoading(true)
     try {
       const res = await api.get(`/saga-definitions/${id}`)
       const data = res.data.data
@@ -36,66 +44,14 @@ const SagaDefinitionEditor = () => {
       setSteps(data.definition || [])
     } catch (error) {
       message.error('加载Saga定义失败')
+    } finally {
+      setLoading(false)
     }
   }
 
-  const handleAddStep = () => {
-    setEditingStep(null)
-    stepForm.resetFields()
-    stepForm.setFieldsValue({
-      type: 'SEQUENTIAL',
-      maxRetries: 3,
-      timeoutSeconds: 30,
-      retryStrategy: 'EXPONENTIAL'
-    })
-    setStepModalVisible(true)
-  }
-
-  const handleEditStep = (index) => {
-    const step = steps[index]
-    setEditingStep({ ...step, index })
-    stepForm.setFieldsValue({
-      name: step.name,
-      id: step.id,
-      type: step.type || 'SEQUENTIAL',
-      description: step.description,
-      maxRetries: step.maxRetries || 3,
-      timeoutSeconds: step.timeoutSeconds || 30,
-      forwardAction: step.forwardAction || {},
-      compensationAction: step.compensationAction || {}
-    })
-    setStepModalVisible(true)
-  }
-
-  const handleDeleteStep = (index) => {
-    const newSteps = [...steps]
-    newSteps.splice(index, 1)
+  const handleFlowChange = (newSteps, newEdges) => {
     setSteps(newSteps)
-  }
-
-  const handleStepSave = () => {
-    stepForm.validateFields().then(values => {
-      const stepData = {
-        id: values.id || `step_${Date.now()}`,
-        name: values.name,
-        type: values.type,
-        description: values.description,
-        maxRetries: values.maxRetries,
-        timeoutSeconds: values.timeoutSeconds,
-        forwardAction: values.forwardAction,
-        compensationAction: values.compensationAction
-      }
-
-      if (editingStep && editingStep.index !== undefined) {
-        const newSteps = [...steps]
-        newSteps[editingStep.index] = stepData
-        setSteps(newSteps)
-      } else {
-        setSteps([...steps, stepData])
-      }
-      setStepModalVisible(false)
-      message.success('步骤已保存')
-    })
+    setEdges(newEdges)
   }
 
   const handleSave = async () => {
@@ -107,6 +63,7 @@ const SagaDefinitionEditor = () => {
         return
       }
 
+      setLoading(true)
       const requestData = {
         name: values.name,
         description: values.description,
@@ -123,180 +80,163 @@ const SagaDefinitionEditor = () => {
       navigate('/definitions')
     } catch (error) {
       // Error handled by interceptor
+    } finally {
+      setLoading(false)
     }
   }
 
-  const moveStep = (fromIndex, toIndex) => {
-    if (toIndex < 0 || toIndex >= steps.length) return
-    const newSteps = [...steps]
-    const [removed] = newSteps.splice(fromIndex, 1)
-    newSteps.splice(toIndex, 0, removed)
-    setSteps(newSteps)
-  }
-
-  const getStepTypeTag = (type) => {
-    const colors = {
-      SEQUENTIAL: 'blue',
-      PARALLEL: 'purple',
-      SYNC_POINT: 'orange'
-    }
-    const labels = {
-      SEQUENTIAL: '顺序',
-      PARALLEL: '并行',
-      SYNC_POINT: '同步点'
-    }
-    return <Tag color={colors[type]}>{labels[type]}</Tag>
+  const getStepTypeCount = (type) => {
+    return steps.filter(s => s.type === type).length
   }
 
   return (
-    <div>
+    <div style={{ height: 'calc(100vh - 180px)' }}>
       <Card 
-        title={isEdit ? '编辑Saga定义' : '新建Saga定义'} 
-        extra={
+        title={
           <Space>
-            <Button onClick={() => navigate('/definitions')}>取消</Button>
-            {isAdmin() && (
-              <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
-                保存
-              </Button>
-            )}
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/definitions')}>
+              返回
+            </Button>
+            <span>{isEdit ? '编辑Saga定义' : '新建Saga定义'}</span>
           </Space>
         }
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label="Saga名称"
-            rules={[{ required: true, message: '请输入Saga名称' }]}
-          >
-            <Input placeholder="请输入Saga名称" disabled={isEdit} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="请输入描述" />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card 
-        style={{ marginTop: 16 }}
-        title="流程步骤"
         extra={
           isAdmin() && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddStep}>
-              添加步骤
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>
+              保存
             </Button>
           )
         }
+        style={{ marginBottom: 16 }}
       >
-        <List
-          dataSource={steps}
-          renderItem={(item, index) => (
-            <List.Item
-              actions={isAdmin() ? [
-                <Button type="link" size="small" onClick={() => moveStep(index, index - 1)} disabled={index === 0}>
-                  上移
-                </Button>,
-                <Button type="link" size="small" onClick={() => moveStep(index, index + 1)} disabled={index === steps.length - 1}>
-                  下移
-                </Button>,
-                <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEditStep(index)}>
-                  编辑
-                </Button>,
-                <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteStep(index)}>
-                  删除
-                </Button>
-              ] : []}
-            >
-              <List.Item.Meta
-                title={
-                  <Space>
-                    <span>{index + 1}. {item.name}</span>
-                    {getStepTypeTag(item.type)}
-                  </Space>
-                }
-                description={item.description || '无描述'}
+        <Form form={form} layout="vertical">
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="name"
+                label="Saga名称"
+                rules={[{ required: true, message: '请输入Saga名称' }]}
+              >
+                <Input placeholder="请输入Saga名称" disabled={isEdit} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="description" label="描述">
+                <Input.TextArea rows={1} placeholder="请输入描述" />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+
+        {steps.length > 0 && (
+          <Row gutter={16} style={{ marginTop: 8 }}>
+            <Col span={6}>
+              <Statistic 
+                title="总步骤数" 
+                value={steps.length} 
+                prefix={<PlayCircleOutlined />}
+                valueStyle={{ color: '#1890ff' }}
               />
-            </List.Item>
-          )}
-        />
-        {steps.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-            暂无步骤，点击"添加步骤"开始创建流程
-          </div>
+            </Col>
+            <Col span={6}>
+              <Statistic 
+                title="顺序步骤" 
+                value={getStepTypeCount('SEQUENTIAL')} 
+                prefix={<PlayCircleOutlined />}
+                valueStyle={{ color: '#1890ff' }}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic 
+                title="并行步骤" 
+                value={getStepTypeCount('PARALLEL')} 
+                prefix={<SwapOutlined />}
+                valueStyle={{ color: '#722ed1' }}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic 
+                title="同步点" 
+                value={getStepTypeCount('SYNC_POINT')} 
+                prefix={<SyncOutlined />}
+                valueStyle={{ color: '#fa8c16' }}
+              />
+            </Col>
+          </Row>
         )}
       </Card>
 
-      <Modal
-        title={editingStep ? '编辑步骤' : '添加步骤'}
-        open={stepModalVisible}
-        onCancel={() => setStepModalVisible(false)}
-        onOk={handleStepSave}
-        width={600}
-        destroyOnClose
+      {!isAdmin() && (
+        <Alert
+          message="只读模式"
+          description="您当前以操作员身份登录，无法编辑Saga定义。如需编辑，请使用管理员账号登录。"
+          type="warning"
+          showIcon
+          icon={<InfoCircleOutlined />}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      <Card 
+        title={
+          <Space>
+            <span>流程设计器</span>
+            {!isAdmin() && <Tag color="orange">只读</Tag>}
+          </Space>
+        }
+        style={{ height: 'calc(100% - 200px)' }}
+        bodyStyle={{ padding: 0, height: '100%' }}
       >
-        <Form form={stepForm} layout="vertical">
-          <Form.Item name="id" label="步骤ID">
-            <Input placeholder="步骤唯一标识" />
-          </Form.Item>
-          <Form.Item
-            name="name"
-            label="步骤名称"
-            rules={[{ required: true, message: '请输入步骤名称' }]}
-          >
-            <Input placeholder="请输入步骤名称" />
-          </Form.Item>
-          <Form.Item name="description" label="步骤描述">
-            <Input.TextArea rows={2} placeholder="请输入步骤描述" />
-          </Form.Item>
-          <Form.Item name="type" label="步骤类型">
-            <Select>
-              <Select.Option value="SEQUENTIAL">顺序执行</Select.Option>
-              <Select.Option value="PARALLEL">并行执行</Select.Option>
-              <Select.Option value="SYNC_POINT">同步点</Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Card size="small" title="正向操作" style={{ marginBottom: 16 }}>
-            <Form.Item name={['forwardAction', 'url']} label="请求URL">
-              <Input placeholder="http://service/api/action" />
-            </Form.Item>
-            <Form.Item name={['forwardAction', 'method']} label="请求方法">
-              <Select>
-                <Select.Option value="GET">GET</Select.Option>
-                <Select.Option value="POST">POST</Select.Option>
-                <Select.Option value="PUT">PUT</Select.Option>
-                <Select.Option value="DELETE">DELETE</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item name={['forwardAction', 'body']} label="请求体模板">
-              <Input.TextArea rows={3} placeholder='{"key": "${value}"}' />
-            </Form.Item>
-          </Card>
-
-          <Card size="small" title="补偿操作" style={{ marginBottom: 16 }}>
-            <Form.Item name={['compensationAction', 'url']} label="补偿URL">
-              <Input placeholder="http://service/api/compensate" />
-            </Form.Item>
-            <Form.Item name={['compensationAction', 'method']} label="请求方法">
-              <Select>
-                <Select.Option value="POST">POST</Select.Option>
-                <Select.Option value="PUT">PUT</Select.Option>
-                <Select.Option value="DELETE">DELETE</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item name={['compensationAction', 'body']} label="补偿请求体模板">
-              <Input.TextArea rows={3} placeholder='{"id": "${response_id}"}' />
-            </Form.Item>
-          </Card>
-
-          <Form.Item name="maxRetries" label="最大重试次数">
-            <InputNumber min={0} max={10} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="timeoutSeconds" label="超时时间(秒)">
-            <InputNumber min={1} max={3600} style={{ width: '100%' }} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        <Tabs
+          defaultActiveKey="flow"
+          items={[
+            {
+              key: 'flow',
+              label: '可视化流程图',
+              children: steps.length === 0 && !isEdit ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Empty 
+                    description={
+                      <div>
+                        <p>暂无流程步骤</p>
+                        <p style={{ color: '#999', fontSize: 12 }}>
+                          从左侧节点面板拖拽节点到画布开始创建流程
+                        </p>
+                      </div>
+                    }
+                  />
+                </div>
+              ) : (
+                <div style={{ height: '100%', width: '100%' }}>
+                  <FlowEditor 
+                    initialNodes={steps}
+                    initialEdges={edges}
+                    onChange={handleFlowChange}
+                    readOnly={!isAdmin()}
+                  />
+                </div>
+              )
+            },
+            {
+              key: 'json',
+              label: 'JSON数据',
+              children: (
+                <div style={{ padding: 16 }}>
+                  <pre style={{ 
+                    background: '#f5f5f5', 
+                    padding: 16, 
+                    borderRadius: 4,
+                    overflow: 'auto',
+                    maxHeight: '500px'
+                  }}>
+                    {JSON.stringify(steps, null, 2)}
+                  </pre>
+                </div>
+              )
+            }
+          ]}
+        />
+      </Card>
     </div>
   )
 }

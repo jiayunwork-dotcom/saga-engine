@@ -1,18 +1,21 @@
-import { useState, useEffect } from 'react'
-import { Row, Col, Card, Statistic, Table, Tag } from 'antd'
+import { useState, useEffect, useMemo } from 'react'
+import { Row, Col, Card, Statistic, Table, Tag, Empty, Spin } from 'antd'
 import { 
   CheckCircleOutlined, 
   CloseCircleOutlined, 
   PlayCircleOutlined, 
-  ExclamationCircleOutlined 
+  ExclamationCircleOutlined,
+  LineChartOutlined
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import api from '../services/api'
+import dayjs from 'dayjs'
 
 const Dashboard = () => {
   const [stats, setStats] = useState({})
   const [topSteps, setTopSteps] = useState([])
   const [hourlyTrend, setHourlyTrend] = useState([])
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -21,6 +24,7 @@ const Dashboard = () => {
   }, [])
 
   const loadData = async () => {
+    setLoading(true)
     try {
       const [statsRes, stepsRes, trendRes] = await Promise.all([
         api.get('/statistics/dashboard'),
@@ -32,31 +36,95 @@ const Dashboard = () => {
       setHourlyTrend(trendRes.data.data || [])
     } catch (error) {
       console.error('Failed to load dashboard data', error)
+    } finally {
+      setLoading(false)
     }
   }
 
-  const trendOption = {
-    title: { text: '24小时实例数趋势', left: 'center', textStyle: { fontSize: 14 } },
-    tooltip: { trigger: 'axis' },
-    xAxis: {
-      type: 'category',
-      data: hourlyTrend.map(item => {
-        const d = new Date(item.hour)
-        return `${d.getHours()}:00`
-      })
-    },
-    yAxis: { type: 'value' },
-    series: [{
-      data: hourlyTrend.map(item => item.count),
-      type: 'line',
-      smooth: true,
-      areaStyle: {}
-    }]
-  }
+  const trendOption = useMemo(() => {
+    const xData = hourlyTrend.map(item => {
+      if (!item.hour) return ''
+      const d = dayjs(item.hour)
+      return d.format('HH:00')
+    })
+
+    const yData = hourlyTrend.map(item => item.count || 0)
+
+    return {
+      title: { 
+        text: '24小时实例数趋势', 
+        left: 'center', 
+        textStyle: { fontSize: 14, fontWeight: 'normal' } 
+      },
+      tooltip: { 
+        trigger: 'axis',
+        formatter: (params) => {
+          if (params && params.length > 0) {
+            return `${params[0].axisValue}<br/>实例数: ${params[0].value}`
+          }
+          return ''
+        }
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '3%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: xData,
+        axisLabel: {
+          rotate: 45
+        }
+      },
+      yAxis: {
+        type: 'value',
+        minInterval: 1
+      },
+      series: [{
+        name: '实例数',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 8,
+        lineStyle: {
+          width: 3,
+          color: '#1890ff'
+        },
+        itemStyle: {
+          color: '#1890ff'
+        },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(24, 144, 255, 0.5)' },
+              { offset: 1, color: 'rgba(24, 144, 255, 0.05)' }
+            ]
+          }
+        },
+        data: yData
+      }]
+    }
+  }, [hourlyTrend])
 
   const stepColumns = [
     { title: '步骤名称', dataIndex: 'stepName', key: 'stepName' },
-    { title: '失败次数', dataIndex: 'failureCount', key: 'failureCount', width: 120 }
+    { 
+      title: '失败次数', 
+      dataIndex: 'failureCount', 
+      key: 'failureCount', 
+      width: 120,
+      render: (count) => (
+        <Tag color="red">{count}</Tag>
+      )
+    }
   ]
 
   return (
@@ -105,19 +173,47 @@ const Dashboard = () => {
 
       <Row gutter={16} style={{ marginTop: 20 }}>
         <Col span={14}>
-          <Card title="24小时趋势">
-            <ReactECharts option={trendOption} style={{ height: 300 }} />
+          <Card 
+            title={
+              <span>
+                <LineChartOutlined style={{ marginRight: 8 }} />
+                24小时实例数趋势
+              </span>
+            }
+          >
+            <Spin spinning={loading}>
+              {hourlyTrend.length > 0 ? (
+                <ReactECharts 
+                  option={trendOption} 
+                  style={{ height: 300, width: '100%' }}
+                  notMerge={true}
+                  lazyUpdate={true}
+                />
+              ) : (
+                <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Empty description="暂无数据" />
+                </div>
+              )}
+            </Spin>
           </Card>
         </Col>
         <Col span={10}>
           <Card title="失败热点步骤 Top10">
-            <Table 
-              dataSource={topSteps}
-              columns={stepColumns}
-              size="small"
-              pagination={false}
-              rowKey="stepName"
-            />
+            <Spin spinning={loading}>
+              {topSteps.length > 0 ? (
+                <Table 
+                  dataSource={topSteps}
+                  columns={stepColumns}
+                  size="small"
+                  pagination={false}
+                  rowKey="stepName"
+                />
+              ) : (
+                <div style={{ padding: '40px 0', textAlign: 'center', color: '#999' }}>
+                  暂无失败数据
+                </div>
+              )}
+            </Spin>
           </Card>
         </Col>
       </Row>
@@ -140,6 +236,26 @@ const Dashboard = () => {
               value={stats.needInterventionCount || 0}
               valueStyle={{ color: '#f5222d' }}
               prefix={<ExclamationCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic 
+              title="补偿中" 
+              value={stats.compensatingCount || 0}
+              valueStyle={{ color: '#faad14' }}
+              prefix={<PlayCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic 
+              title="已暂停" 
+              value={stats.pausedCount || 0}
+              valueStyle={{ color: '#722ed1' }}
+              prefix={<PlayCircleOutlined />}
             />
           </Card>
         </Col>

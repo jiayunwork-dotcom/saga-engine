@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { 
   Card, Form, Input, Button, Space, Tabs, Empty, message, Tag,
-  Row, Col, Statistic, Alert
+  Row, Col, Statistic, Alert, Divider
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
@@ -9,7 +9,8 @@ import {
   PlayCircleOutlined,
   SwapOutlined,
   SyncOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  PlusOutlined
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
@@ -89,77 +90,73 @@ const SagaDefinitionEditor = () => {
     return steps.filter(s => s.type === type).length
   }
 
+  const shouldShowEmpty = steps.length === 0 && !isEdit && isAdmin()
+
   return (
-    <div style={{ height: 'calc(100vh - 180px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 140px)' }}>
       <Card 
+        size="small"
         title={
           <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/definitions')}>
+            <Button icon={<ArrowLeftOutlined />} size="small" onClick={() => navigate('/definitions')}>
               返回
             </Button>
-            <span>{isEdit ? '编辑Saga定义' : '新建Saga定义'}</span>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>
+              {isEdit ? '编辑Saga定义' : '新建Saga定义'}
+            </span>
           </Space>
         }
         extra={
           isAdmin() && (
-            <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading} size="small">
               保存
             </Button>
           )
         }
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 12, flexShrink: 0 }}
       >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="name"
-                label="Saga名称"
-                rules={[{ required: true, message: '请输入Saga名称' }]}
-              >
-                <Input placeholder="请输入Saga名称" disabled={isEdit} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="description" label="描述">
-                <Input.TextArea rows={1} placeholder="请输入描述" />
-              </Form.Item>
-            </Col>
-          </Row>
+        <Form form={form} layout="inline">
+          <Form.Item
+            name="name"
+            label="Saga名称"
+            rules={[{ required: true, message: '请输入Saga名称' }]}
+            style={{ marginBottom: 0, minWidth: 250 }}
+          >
+            <Input placeholder="请输入Saga名称" disabled={isEdit} size="small" />
+          </Form.Item>
+          <Form.Item name="description" label="描述" style={{ marginBottom: 0, flex: 1, minWidth: 300 }}>
+            <Input placeholder="请输入描述" size="small" />
+          </Form.Item>
         </Form>
 
         {steps.length > 0 && (
-          <Row gutter={16} style={{ marginTop: 8 }}>
+          <Row gutter={16} style={{ marginTop: 12 }}>
             <Col span={6}>
               <Statistic 
                 title="总步骤数" 
                 value={steps.length} 
-                prefix={<PlayCircleOutlined />}
-                valueStyle={{ color: '#1890ff' }}
+                valueStyle={{ fontSize: 18 }}
               />
             </Col>
             <Col span={6}>
               <Statistic 
                 title="顺序步骤" 
                 value={getStepTypeCount('SEQUENTIAL')} 
-                prefix={<PlayCircleOutlined />}
-                valueStyle={{ color: '#1890ff' }}
+                valueStyle={{ color: '#1890ff', fontSize: 18 }}
               />
             </Col>
             <Col span={6}>
               <Statistic 
                 title="并行步骤" 
                 value={getStepTypeCount('PARALLEL')} 
-                prefix={<SwapOutlined />}
-                valueStyle={{ color: '#722ed1' }}
+                valueStyle={{ color: '#722ed1', fontSize: 18 }}
               />
             </Col>
             <Col span={6}>
               <Statistic 
                 title="同步点" 
                 value={getStepTypeCount('SYNC_POINT')} 
-                prefix={<SyncOutlined />}
-                valueStyle={{ color: '#fa8c16' }}
+                valueStyle={{ color: '#fa8c16', fontSize: 18 }}
               />
             </Col>
           </Row>
@@ -169,73 +166,63 @@ const SagaDefinitionEditor = () => {
       {!isAdmin() && (
         <Alert
           message="只读模式"
-          description="您当前以操作员身份登录，无法编辑Saga定义。如需编辑，请使用管理员账号登录。"
+          description="您当前以操作员身份登录，无法编辑Saga定义。"
           type="warning"
           showIcon
           icon={<InfoCircleOutlined />}
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 12, flexShrink: 0 }}
+          size="small"
         />
       )}
 
       <Card 
+        size="small"
         title={
           <Space>
             <span>流程设计器</span>
-            {!isAdmin() && <Tag color="orange">只读</Tag>}
+            {!isAdmin() && <Tag color="orange" style={{ marginLeft: 8 }}>只读</Tag>}
           </Space>
         }
-        style={{ height: 'calc(100% - 200px)' }}
-        bodyStyle={{ padding: 0, height: '100%' }}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+        bodyStyle={{ flex: 1, padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        <Tabs
-          defaultActiveKey="flow"
-          items={[
-            {
-              key: 'flow',
-              label: '可视化流程图',
-              children: steps.length === 0 && !isEdit ? (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Empty 
-                    description={
-                      <div>
-                        <p>暂无流程步骤</p>
-                        <p style={{ color: '#999', fontSize: 12 }}>
-                          从左侧节点面板拖拽节点到画布开始创建流程
-                        </p>
-                      </div>
-                    }
-                  />
+        {shouldShowEmpty ? (
+          <div style={{ 
+            flex: 1, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            flexDirection: 'column'
+          }}>
+            <Empty 
+              description={
+                <div>
+                  <p style={{ fontSize: 14 }}>暂无流程步骤</p>
+                  <p style={{ color: '#999', fontSize: 12 }}>
+                    点击下方"开始设计"按钮进入流程图编辑
+                  </p>
                 </div>
-              ) : (
-                <div style={{ height: '100%', width: '100%' }}>
-                  <FlowEditor 
-                    initialNodes={steps}
-                    initialEdges={edges}
-                    onChange={handleFlowChange}
-                    readOnly={!isAdmin()}
-                  />
-                </div>
-              )
-            },
-            {
-              key: 'json',
-              label: 'JSON数据',
-              children: (
-                <div style={{ padding: 16 }}>
-                  <pre style={{ 
-                    background: '#f5f5f5', 
-                    padding: 16, 
-                    borderRadius: 4,
-                    overflow: 'auto',
-                    maxHeight: '500px'
-                  }}>
-                    {JSON.stringify(steps, null, 2)}
-                  </pre>
-                </div>
-              )
-            }
-          ]}
-        />
+              }
+            />
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />} 
+              style={{ marginTop: 16 }}
+              onClick={() => setSteps([{ id: 'step_demo', name: '示例步骤', type: 'SEQUENTIAL' }])}
+            >
+              开始设计
+            </Button>
+          </div>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <FlowEditor 
+              initialNodes={steps}
+              initialEdges={edges}
+              onChange={handleFlowChange}
+              readOnly={!isAdmin()}
+            />
+          </div>
+        )}
       </Card>
     </div>
   )

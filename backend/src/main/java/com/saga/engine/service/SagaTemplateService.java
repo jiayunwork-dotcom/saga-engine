@@ -68,7 +68,7 @@ public class SagaTemplateService {
         template.setVersion(request.getVersion());
         template.setStepDefinition(request.getStepDefinition());
         template.setPublisher(username);
-        template.setSceneDescription(request.sceneDescription);
+        template.setSceneDescription(request.getSceneDescription());
         template.setStatus(TemplateStatus.PENDING_REVIEW);
         template.setDownloadCount(0);
 

@@ -29,6 +29,7 @@ public class SagaDefinitionService {
         definition.setDescription(request.getDescription());
         definition.setVersion(currentMaxVersion != null ? currentMaxVersion + 1 : 1);
         definition.setDefinition(request.getDefinition());
+        definition.setGlobalTimeoutSeconds(request.getGlobalTimeoutSeconds() != null ? request.getGlobalTimeoutSeconds() : 300);
         definition.setCreatedBy(username);
 
         SagaDefinition saved = sagaDefinitionRepository.save(definition);
@@ -49,6 +50,7 @@ public class SagaDefinitionService {
         newDefinition.setDescription(request.getDescription());
         newDefinition.setVersion(maxVersion + 1);
         newDefinition.setDefinition(request.getDefinition());
+        newDefinition.setGlobalTimeoutSeconds(request.getGlobalTimeoutSeconds() != null ? request.getGlobalTimeoutSeconds() : existing.getGlobalTimeoutSeconds());
         newDefinition.setCreatedBy(username);
 
         SagaDefinition saved = sagaDefinitionRepository.save(newDefinition);
@@ -133,6 +135,7 @@ public class SagaDefinitionService {
         dto.setDescription(entity.getDescription());
         dto.setVersion(entity.getVersion());
         dto.setDefinition(entity.getDefinition());
+        dto.setGlobalTimeoutSeconds(entity.getGlobalTimeoutSeconds());
         dto.setCreatedBy(entity.getCreatedBy());
         dto.setCreatedAt(entity.getCreatedAt());
         dto.setUpdatedAt(entity.getUpdatedAt());

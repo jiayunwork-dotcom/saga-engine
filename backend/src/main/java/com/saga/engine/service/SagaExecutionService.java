@@ -39,6 +39,7 @@ public class SagaExecutionService {
     private final HttpCallerService httpCallerService;
     private final CompensationService compensationService;
     private final ObjectMapper objectMapper;
+    private final ExpressionEvaluatorService expressionEvaluatorService;
     private final StringRedisTemplate redisTemplate;
 
     @Value("${saga.default-timeout-seconds:30}")
@@ -117,6 +118,7 @@ public class SagaExecutionService {
             if (forwardAction != null) {
                 stepExec.setRequestUrl((String) forwardAction.get("url"));
                 stepExec.setRequestMethod((String) forwardAction.getOrDefault("method", "POST"));
+                stepExec.setRequestBody((String) forwardAction.get("body"));
             }
 
             stepExec.setMaxRetries((Integer) step.getOrDefault("maxRetries", defaultMaxRetries));
@@ -155,13 +157,24 @@ public class SagaExecutionService {
             return;
         }
 
+        SagaDefinition definition = sagaDefinitionService.getDefinitionEntityByNameAndVersion(
+                instance.getSagaDefinitionName(), instance.getSagaDefinitionVersion());
+
+        int globalTimeoutSeconds = definition.getGlobalTimeoutSeconds() != null
+                ? definition.getGlobalTimeoutSeconds() : 300;
+
         instance.setStatus(SagaStatus.RUNNING);
         sagaInstanceRepository.save(instance);
 
         List<StepExecution> steps = stepExecutionRepository.findBySagaInstanceIdOrderByExecutionOrder(instanceId);
+        List<Map<String, Object>> stepDefinitions = definition.getDefinition();
 
         try {
-            executeSteps(steps, instance);
+            if (expressionEvaluatorService.isTimeoutExceeded(instance.getStartedAt(), globalTimeoutSeconds)) {
+                throw new RuntimeException("Saga global timeout exceeded before execution started");
+            }
+
+            executeSteps(steps, stepDefinitions, instance, globalTimeoutSeconds);
             
             instance.setStatus(SagaStatus.COMPLETED);
             instance.setCompletedAt(LocalDateTime.now());
@@ -175,31 +188,53 @@ public class SagaExecutionService {
         }
     }
 
-    private void executeSteps(List<StepExecution> steps, SagaInstance instance) throws Exception {
+    private void executeSteps(List<StepExecution> steps, List<Map<String, Object>> stepDefinitions,
+                              SagaInstance instance, int globalTimeoutSeconds) throws Exception {
         Map<String, Object> context = new HashMap<>();
-        if (instance.getInputData() != null) {
-            context.putAll(instance.getInputData());
-        }
 
         int i = 0;
         while (i < steps.size()) {
+            checkGlobalTimeout(instance.getStartedAt(), globalTimeoutSeconds);
+
             StepExecution step = steps.get(i);
-            
+            Map<String, Object> stepDef = findStepDefinition(stepDefinitions, step.getStepId());
+
             if (step.getStepType() == StepType.PARALLEL) {
                 List<StepExecution> parallelSteps = collectParallelSteps(steps, i);
-                executeParallelSteps(parallelSteps, instance, context);
+                List<Map<String, Object>> parallelStepDefs = new ArrayList<>();
+                for (StepExecution ps : parallelSteps) {
+                    parallelStepDefs.add(findStepDefinition(stepDefinitions, ps.getStepId()));
+                }
+                executeParallelSteps(parallelSteps, parallelStepDefs, instance, context, globalTimeoutSeconds);
                 i += parallelSteps.size();
                 
                 if (i < steps.size() && steps.get(i).getStepType() == StepType.SYNC_POINT) {
                     i++;
                 }
             } else {
-                executeSequentialStep(step, instance, context);
+                executeSequentialStep(step, stepDef, instance, context);
                 i++;
             }
         }
 
         instance.setOutputData(context);
+    }
+
+    private void checkGlobalTimeout(LocalDateTime startedAt, int globalTimeoutSeconds) {
+        if (expressionEvaluatorService.isTimeoutExceeded(startedAt, globalTimeoutSeconds)) {
+            throw new RuntimeException("Saga global timeout exceeded after " +
+                    expressionEvaluatorService.getElapsedSeconds(startedAt) + " seconds (limit: " + globalTimeoutSeconds + "s)");
+        }
+    }
+
+    private Map<String, Object> findStepDefinition(List<Map<String, Object>> stepDefinitions, String stepId) {
+        if (stepDefinitions == null) return null;
+        for (Map<String, Object> def : stepDefinitions) {
+            if (stepId.equals(def.get("id"))) {
+                return def;
+            }
+        }
+        return null;
     }
 
     private List<StepExecution> collectParallelSteps(List<StepExecution> steps, int startIndex) {
@@ -216,7 +251,8 @@ public class SagaExecutionService {
         return parallelSteps;
     }
 
-    private void executeSequentialStep(StepExecution step, SagaInstance instance, Map<String, Object> context) throws Exception {
+    private void executeSequentialStep(StepExecution step, Map<String, Object> stepDef,
+                                       SagaInstance instance, Map<String, Object> context) throws Exception {
         if (step.getStatus() == StepStatus.COMPLETED) {
             return;
         }
@@ -227,9 +263,17 @@ public class SagaExecutionService {
             return;
         }
 
+        if (!evaluateStepCondition(stepDef, step, instance, context)) {
+            log.info("Step {} skipped due to condition not met", step.getStepId());
+            step.setStatus(StepStatus.SKIPPED);
+            stepExecutionRepository.save(step);
+            eventBusService.publishEvent(new SagaEvent(EventType.STEP_SKIPPED, instance.getId(), step.getStepId()));
+            return;
+        }
+
         eventBusService.publishEvent(new SagaEvent(EventType.STEP_STARTED, instance.getId(), step.getStepId()));
 
-        executeStepWithRetry(step, instance, context);
+        executeStepWithRetry(step, stepDef, instance, context);
 
         if (step.getStatus() == StepStatus.COMPLETED) {
             eventBusService.publishEvent(new SagaEvent(EventType.STEP_COMPLETED, instance.getId(), step.getStepId()));
@@ -239,17 +283,44 @@ public class SagaExecutionService {
         }
     }
 
-    private void executeParallelSteps(List<StepExecution> parallelSteps, SagaInstance instance, Map<String, Object> context) throws Exception {
+    private boolean evaluateStepCondition(Map<String, Object> stepDef, StepExecution step,
+                                          SagaInstance instance, Map<String, Object> context) {
+        if (stepDef == null) {
+            return true;
+        }
+        String condition = (String) stepDef.get("condition");
+        if (condition == null || condition.trim().isEmpty()) {
+            return true;
+        }
+        try {
+            return expressionEvaluatorService.evaluateCondition(condition, context, instance.getInputData());
+        } catch (Exception e) {
+            log.error("Error evaluating condition for step {}: {}", step.getStepId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private void executeParallelSteps(List<StepExecution> parallelSteps, List<Map<String, Object>> parallelStepDefs,
+                                      SagaInstance instance, Map<String, Object> context,
+                                      int globalTimeoutSeconds) throws Exception {
         if (parallelSteps.isEmpty()) {
             return;
         }
 
         List<Callable<StepExecutionResult>> tasks = new ArrayList<>();
-        for (StepExecution step : parallelSteps) {
+        for (int idx = 0; idx < parallelSteps.size(); idx++) {
+            final StepExecution step = parallelSteps.get(idx);
+            final Map<String, Object> stepDef = parallelStepDefs.get(idx);
             tasks.add(() -> {
                 try {
                     Map<String, Object> stepContext = new HashMap<>(context);
-                    executeStepWithRetry(step, instance, stepContext);
+                    if (evaluateStepCondition(stepDef, step, instance, stepContext)) {
+                        executeStepWithRetry(step, stepDef, instance, stepContext);
+                    } else {
+                        log.info("Parallel step {} skipped due to condition not met", step.getStepId());
+                        step.setStatus(StepStatus.SKIPPED);
+                        stepExecutionRepository.save(step);
+                    }
                     return new StepExecutionResult(step, stepContext, null);
                 } catch (Exception e) {
                     return new StepExecutionResult(step, null, e);
@@ -257,11 +328,17 @@ public class SagaExecutionService {
             });
         }
 
-        List<Future<StepExecutionResult>> futures = parallelExecutor.invokeAll(tasks);
+        long remainingTimeout = expressionEvaluatorService.getRemainingSeconds(instance.getStartedAt(), globalTimeoutSeconds);
+        List<Future<StepExecutionResult>> futures = parallelExecutor.invokeAll(tasks, 
+                Math.max(5, remainingTimeout), TimeUnit.SECONDS);
         
         boolean hasFailure = false;
         for (Future<StepExecutionResult> future : futures) {
             try {
+                if (!future.isDone()) {
+                    hasFailure = true;
+                    continue;
+                }
                 StepExecutionResult result = future.get();
                 if (result.error != null || result.step.getStatus() == StepStatus.FAILED 
                     || result.step.getStatus() == StepStatus.TIMED_OUT) {
@@ -279,7 +356,8 @@ public class SagaExecutionService {
         }
     }
 
-    private void executeStepWithRetry(StepExecution step, SagaInstance instance, Map<String, Object> context) {
+    private void executeStepWithRetry(StepExecution step, Map<String, Object> stepDef,
+                                      SagaInstance instance, Map<String, Object> context) {
         step.setStatus(StepStatus.RUNNING);
         step.setStartedAt(LocalDateTime.now());
         stepExecutionRepository.save(step);
@@ -304,7 +382,7 @@ public class SagaExecutionService {
             }
 
             try {
-                executeSingleStep(step, context);
+                executeSingleStep(step, stepDef, instance, context);
                 
                 step.setStatus(StepStatus.COMPLETED);
                 step.setCompletedAt(LocalDateTime.now());
@@ -323,14 +401,25 @@ public class SagaExecutionService {
         stepExecutionRepository.save(step);
     }
 
-    private void executeSingleStep(StepExecution step, Map<String, Object> context) throws Exception {
+    private void executeSingleStep(StepExecution step, Map<String, Object> stepDef,
+                                   SagaInstance instance, Map<String, Object> context) throws Exception {
         if (step.getRequestUrl() == null || step.getRequestMethod() == null) {
             return;
         }
 
-        String url = resolveTemplate(step.getRequestUrl(), context);
+        Map<String, Object> forwardAction = stepDef != null ? (Map<String, Object>) stepDef.get("forwardAction") : null;
+        String bodyTemplate = null;
+        if (forwardAction != null) {
+            bodyTemplate = (String) forwardAction.get("body");
+        }
+
+        String url = expressionEvaluatorService.resolveTemplate(step.getRequestUrl(), context, instance.getInputData());
         String method = step.getRequestMethod();
-        String body = step.getRequestBody() != null ? resolveTemplate(step.getRequestBody(), context) : null;
+        String body = bodyTemplate != null ? expressionEvaluatorService.resolveTemplate(bodyTemplate, context, instance.getInputData()) : null;
+
+        if (body == null && step.getRequestBody() != null) {
+            body = expressionEvaluatorService.resolveTemplate(step.getRequestBody(), context, instance.getInputData());
+        }
 
         Map<String, String> headers = new HashMap<>();
         headers.put("X-Saga-Idempotency-Key", 
@@ -356,20 +445,6 @@ public class SagaExecutionService {
                 context.put(step.getStepId() + "_response", result.getResponseBody());
             }
         }
-    }
-
-    private String resolveTemplate(String template, Map<String, Object> context) {
-        if (template == null) {
-            return null;
-        }
-        String result = template;
-        for (Map.Entry<String, Object> entry : context.entrySet()) {
-            String placeholder = "${" + entry.getKey() + "}";
-            if (entry.getValue() != null) {
-                result = result.replace(placeholder, entry.getValue().toString());
-            }
-        }
-        return result;
     }
 
     private void handleSagaFailure(SagaInstance instance, String errorMessage) {

@@ -14,4 +14,6 @@ public class UpdateSagaDefinitionRequest {
 
     @NotNull(message = "Definition steps are required")
     private List<Map<String, Object>> definition;
+
+    private Integer globalTimeoutSeconds;
 }

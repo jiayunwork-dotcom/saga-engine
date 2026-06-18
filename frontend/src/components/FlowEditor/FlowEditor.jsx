@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import ReactFlow, {
   ReactFlowProvider,
   addEdge,
@@ -12,7 +12,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 import { 
   Drawer, Form, Input, Select, InputNumber, 
-  Space, Tag, message, Typography, Divider, Button
+  Space, Tag, message, Typography, Divider, Button, Table, Alert, Tooltip
 } from 'antd'
 import { 
   PlayCircleOutlined, 
@@ -22,7 +22,10 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
   FullscreenOutlined,
-  BgColorsOutlined
+  BgColorsOutlined,
+  FilterOutlined,
+  DatabaseOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons'
 import { nodeTypes } from './CustomNodes.jsx'
 
@@ -35,6 +38,46 @@ const getId = (prefix = 'step') => {
   return `${prefix}_${Date.now()}_${nodeId}`
 }
 
+const extractTemplateReferences = (template) => {
+  const refs = []
+  if (!template || typeof template !== 'string') return refs
+  
+  const regex = /\$\{([^}]+)\}/g
+  const seen = new Set()
+  let match
+  
+  while ((match = regex.exec(template)) !== null) {
+    const expr = match[1].trim()
+    if (seen.has(expr)) continue
+    seen.add(expr)
+    
+    const ref = { expression: expr, key: expr }
+    if (expr.startsWith('steps.')) {
+      const withoutPrefix = expr.substring(6)
+      const dotIdx = withoutPrefix.indexOf('.')
+      if (dotIdx > 0) {
+        ref.source = '步骤响应'
+        ref.sourceStep = withoutPrefix.substring(0, dotIdx)
+        ref.fieldPath = withoutPrefix.substring(dotIdx + 1)
+      } else {
+        ref.source = '步骤响应'
+        ref.sourceStep = withoutPrefix
+        ref.fieldPath = ''
+      }
+    } else if (expr.startsWith('input.')) {
+      ref.source = 'Saga输入参数'
+      ref.sourceStep = '-'
+      ref.fieldPath = expr.substring(6)
+    } else {
+      ref.source = '上下文变量'
+      ref.sourceStep = '-'
+      ref.fieldPath = expr
+    }
+    refs.push(ref)
+  }
+  return refs
+}
+
 const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readOnly = false }) => {
   const reactFlowWrapper = useRef(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -43,6 +86,8 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
   const [selectedNode, setSelectedNode] = useState(null)
   const [drawerVisible, setDrawerVisible] = useState(false)
   const [stepForm] = Form.useForm()
+  const [previewBody, setPreviewBody] = useState('')
+  const [currentCondition, setCurrentCondition] = useState('')
 
   useEffect(() => {
     if (initialNodes && initialNodes.length > 0 && nodes.length === 0) {
@@ -90,8 +135,9 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
           type: step.type || 'SEQUENTIAL',
           maxRetries: step.maxRetries || 3,
           timeoutSeconds: step.timeoutSeconds || 30,
-          forwardAction: step.forwardAction || {},
-          compensationAction: step.compensationAction || {},
+          condition: step.condition || '',
+          forwardAction: step.forwardAction || { url: '', method: 'POST', body: '' },
+          compensationAction: step.compensationAction || { url: '', method: 'POST', body: '' },
           status: step.status
         },
         draggable: !readOnly
@@ -135,6 +181,7 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
         name: node.data.name,
         description: node.data.description,
         type: node.data.type,
+        condition: node.data.condition,
         maxRetries: node.data.maxRetries,
         timeoutSeconds: node.data.timeoutSeconds,
         forwardAction: node.data.forwardAction,
@@ -199,14 +246,15 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
           type: stepTypeMap[type],
           maxRetries: 3,
           timeoutSeconds: 30,
-          forwardAction: { url: '', method: 'POST' },
-          compensationAction: { url: '', method: 'POST' }
+          condition: '',
+          forwardAction: { url: '', method: 'POST', body: '' },
+          compensationAction: { url: '', method: 'POST', body: '' }
         },
         draggable: !readOnly
       }
 
       setNodes((nds) => nds.concat(newNode))
-      message.success('已添加步骤，请点击节点编辑属性')
+      message.success('已添加步骤,请点击节点编辑属性')
     },
     [reactFlowInstance, setNodes, readOnly]
   )
@@ -215,16 +263,29 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
     if (node.type !== 'step') return
     
     setSelectedNode(node)
+    const forwardAction = node.data.forwardAction || { url: '', method: 'POST', body: '' }
+    const compensationAction = node.data.compensationAction || { url: '', method: 'POST', body: '' }
     stepForm.setFieldsValue({
       id: node.id,
       name: node.data.name,
       description: node.data.description,
       type: node.data.type,
+      condition: node.data.condition || '',
       maxRetries: node.data.maxRetries,
       timeoutSeconds: node.data.timeoutSeconds,
-      forwardAction: node.data.forwardAction,
-      compensationAction: node.data.compensationAction
+      forwardAction: {
+        url: forwardAction.url || '',
+        method: forwardAction.method || 'POST',
+        body: forwardAction.body || ''
+      },
+      compensationAction: {
+        url: compensationAction.url || '',
+        method: compensationAction.method || 'POST',
+        body: compensationAction.body || ''
+      }
     })
+    setPreviewBody(forwardAction.body || '')
+    setCurrentCondition(node.data.condition || '')
     setDrawerVisible(true)
   }, [stepForm])
 
@@ -240,6 +301,7 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
                 name: values.name,
                 description: values.description,
                 type: values.type,
+                condition: values.condition,
                 maxRetries: values.maxRetries,
                 timeoutSeconds: values.timeoutSeconds,
                 forwardAction: values.forwardAction,
@@ -270,6 +332,54 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
     event.dataTransfer.setData('application/reactflow', nodeType)
     event.dataTransfer.effectAllowed = 'move'
   }
+
+  const dataMappingRefs = useMemo(() => {
+    const vals = stepForm.getFieldsValue(true)
+    const forwardBody = vals?.forwardAction?.body || ''
+    const compBody = vals?.compensationAction?.body || ''
+    const forwardUrl = vals?.forwardAction?.url || ''
+    const compUrl = vals?.compensationAction?.url || ''
+    const all = []
+    all.push(...extractTemplateReferences(forwardBody))
+    all.push(...extractTemplateReferences(compBody))
+    all.push(...extractTemplateReferences(forwardUrl))
+    all.push(...extractTemplateReferences(compUrl))
+    const seen = new Set()
+    return all.filter(r => {
+      if (seen.has(r.key)) return false
+      seen.add(r.key)
+      return true
+    })
+  }, [previewBody, stepForm, drawerVisible])
+
+  const dataMappingColumns = [
+    {
+      title: '数据来源',
+      dataIndex: 'source',
+      key: 'source',
+      width: 120,
+      render: (v) => <Tag color="blue">{v}</Tag>
+    },
+    {
+      title: '来源步骤',
+      dataIndex: 'sourceStep',
+      key: 'sourceStep',
+      width: 120,
+      render: (v) => v === '-' ? <Text type="secondary">-</Text> : <Text code>{v}</Text>
+    },
+    {
+      title: '字段路径',
+      dataIndex: 'fieldPath',
+      key: 'fieldPath',
+      render: (v) => v ? <Text code>{v}</Text> : <Text type="secondary">完整响应</Text>
+    },
+    {
+      title: '表达式',
+      dataIndex: 'expression',
+      key: 'expression',
+      render: (v) => <Text code copyable>${'{' + v + '}'}</Text>
+    }
+  ]
 
   const sidebarItems = [
     { type: 'sequential', label: '顺序步骤', icon: <PlayCircleOutlined />, color: '#1890ff', desc: '前一个步骤完成后执行' },
@@ -417,7 +527,7 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
       <Drawer
         title="编辑步骤属性"
         placement="right"
-        width={420}
+        width={520}
         open={drawerVisible}
         onClose={() => setDrawerVisible(false)}
         footer={
@@ -438,6 +548,17 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
           form={stepForm}
           layout="vertical"
           disabled={readOnly}
+          onValuesChange={(changed, all) => {
+            if (changed?.forwardAction?.body !== undefined) {
+              setPreviewBody(changed.forwardAction.body)
+            }
+            if (changed?.condition !== undefined) {
+              setCurrentCondition(changed.condition || '')
+            }
+            if (changed?.compensationAction?.body !== undefined) {
+              setPreviewBody(all?.forwardAction?.body || '')
+            }
+          }}
         >
           <Form.Item name="id" hidden>
             <Input />
@@ -473,6 +594,49 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
             </Select>
           </Form.Item>
 
+          <Divider orientation="left">
+            <Space>
+              <FilterOutlined />
+              执行条件
+              <Tooltip title="JavaScript表达式,返回true时执行该步骤,返回false时跳过。可通过 steps.stepId.response.xxx 引用前序步骤响应,通过 input.xxx 引用Saga输入参数">
+                <QuestionCircleOutlined style={{ color: '#999' }} />
+              </Tooltip>
+            </Space>
+          </Divider>
+
+          <Form.Item
+            name="condition"
+            label={
+              <span>
+                条件表达式 
+                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                  (留空表示无条件执行)
+                </Text>
+              </span>
+            }
+          >
+            <Input.TextArea 
+              rows={3} 
+              placeholder="例如: steps.createOrder.response.status === 'SUCCESS' &amp;&amp; input.amount > 100" 
+            />
+          </Form.Item>
+
+          {currentCondition && currentCondition.trim() && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="条件表达式示例"
+              description={
+                <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                  <div><code>steps.step1.response.success</code> - 引用步骤step1的响应success字段</div>
+                  <div><code>input.amount {'<'} 1000</code> - 引用Saga输入参数amount并判断</div>
+                  <div><code>steps.step1.response.code === 200 {'&&'} input.userId</code> - 多条件组合</div>
+                </div>
+              }
+            />
+          )}
+
           <Divider orientation="left">正向操作</Divider>
           
           <Form.Item
@@ -480,7 +644,7 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
             label="请求URL"
             rules={[{ required: true, message: '请输入正向操作URL' }]}
           >
-            <Input placeholder="https://api.example.com/do-something" />
+            <Input placeholder="https://api.example.com/do-something, 支持 ${expression} 占位符" />
           </Form.Item>
 
           <Form.Item
@@ -496,13 +660,30 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
             </Select>
           </Form.Item>
 
+          <Form.Item
+            name={['forwardAction', 'body']}
+            label={
+              <span>
+                请求体模板 
+                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                  (支持 $&#123;expression&#125; 占位符)
+                </Text>
+              </span>
+            }
+          >
+            <Input.TextArea 
+              rows={5} 
+              placeholder={'{"orderId":"${steps.createOrder.response.id}","userId":"${input.userId}"}'}
+            />
+          </Form.Item>
+
           <Divider orientation="left">补偿操作</Divider>
           
           <Form.Item
             name={['compensationAction', 'url']}
             label="补偿URL"
           >
-            <Input placeholder="https://api.example.com/compensate" />
+            <Input placeholder="https://api.example.com/compensate, 支持 ${expression} 占位符" />
           </Form.Item>
 
           <Form.Item
@@ -516,6 +697,41 @@ const FlowEditorInner = ({ initialNodes = [], initialEdges = [], onChange, readO
               <Select.Option value="PATCH">PATCH</Select.Option>
             </Select>
           </Form.Item>
+
+          <Form.Item
+            name={['compensationAction', 'body']}
+            label="补偿请求体模板"
+          >
+            <Input.TextArea 
+              rows={3} 
+              placeholder={'{"orderId":"${steps.createOrder.response.id}"}'}
+            />
+          </Form.Item>
+
+          <Divider orientation="left">
+            <Space>
+              <DatabaseOutlined />
+              数据映射预览
+            </Space>
+          </Divider>
+
+          {dataMappingRefs.length > 0 ? (
+            <Table
+              size="small"
+              dataSource={dataMappingRefs}
+              columns={dataMappingColumns}
+              pagination={false}
+              rowKey="key"
+              scroll={{ y: 240 }}
+            />
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="暂无数据映射"
+              description="在URL或请求体模板中使用 $&#123;expression&#125; 占位符引用上游数据后,将在此处显示映射关系。"
+            />
+          )}
 
           <Divider orientation="left">高级配置</Divider>
 

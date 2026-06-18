@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
 import { 
   Card, Descriptions, Table, Button, Space, Tag, Modal, 
-  message, Timeline, Drawer, Collapse 
+  message, Timeline, Drawer, Collapse, Progress, Tooltip, Statistic, Row, Col
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
   PauseCircleOutlined, 
   PlayCircleOutlined, 
   ReloadOutlined,
-  RollbackOutlined
+  RollbackOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
@@ -25,6 +26,7 @@ const SagaInstanceDetail = () => {
   const [loading, setLoading] = useState(false)
   const [stepDetailVisible, setStepDetailVisible] = useState(false)
   const [selectedStep, setSelectedStep] = useState(null)
+  const [, forceUpdate] = useState(0)
 
   useEffect(() => {
     loadInstance()
@@ -35,8 +37,67 @@ const SagaInstanceDetail = () => {
       loadSteps()
     }, 5000)
 
-    return () => clearInterval(timer)
+    const tickTimer = setInterval(() => {
+      forceUpdate(n => n + 1)
+    }, 1000)
+
+    return () => {
+      clearInterval(timer)
+      clearInterval(tickTimer)
+    }
   }, [id])
+
+  const getTimeoutInfo = () => {
+    if (!instance) return null
+    const globalTimeout = instance.globalTimeoutSeconds || 300
+    const startedAt = instance.startedAt ? dayjs(instance.startedAt) : null
+    const now = dayjs()
+    let elapsedSeconds = 0
+    let remainingSeconds = globalTimeout
+    let percent = 0
+
+    if (startedAt) {
+      if (instance.completedAt) {
+        const completedAt = dayjs(instance.completedAt)
+        elapsedSeconds = Math.max(0, completedAt.diff(startedAt, 'second'))
+        remainingSeconds = Math.max(0, globalTimeout - elapsedSeconds)
+      } else {
+        elapsedSeconds = Math.max(0, now.diff(startedAt, 'second'))
+        remainingSeconds = Math.max(0, globalTimeout - elapsedSeconds)
+      }
+      percent = Math.min(100, (elapsedSeconds / globalTimeout) * 100)
+    }
+
+    const formatDuration = (secs) => {
+      const h = Math.floor(secs / 3600)
+      const m = Math.floor((secs % 3600) / 60)
+      const s = secs % 60
+      if (h > 0) return `${h}h ${m}m ${s}s`
+      if (m > 0) return `${m}m ${s}s`
+      return `${s}s`
+    }
+
+    let status = 'normal'
+    if (percent >= 90) status = 'exception'
+    else if (percent >= 70) status = 'active'
+
+    const isFinished = instance.status === 'COMPLETED' || 
+                       instance.status === 'FAILED' || 
+                       instance.status === 'COMPENSATING' ||
+                       instance.status === 'NEED_INTERVENTION'
+
+    return {
+      globalTimeout,
+      elapsedSeconds,
+      remainingSeconds,
+      percent,
+      status,
+      isFinished,
+      elapsedFormatted: formatDuration(elapsedSeconds),
+      remainingFormatted: formatDuration(remainingSeconds),
+      timeoutFormatted: formatDuration(globalTimeout)
+    }
+  }
 
   const loadInstance = async () => {
     try {
@@ -250,6 +311,57 @@ const SagaInstanceDetail = () => {
             </Descriptions.Item>
           )}
         </Descriptions>
+
+        {getTimeoutInfo() && (
+          <div style={{ marginTop: 16, padding: 16, background: '#fafafa', borderRadius: 8 }}>
+            <Space style={{ marginBottom: 12 }}>
+              <ClockCircleOutlined style={{ color: '#1890ff' }} />
+              <span style={{ fontWeight: 'bold' }}>全局执行超时监控</span>
+              <Tooltip title="Saga实例从启动到结束的最大允许执行时间,超过将自动触发补偿">
+                <Tag color="blue">总时长: {getTimeoutInfo().timeoutFormatted}</Tag>
+              </Tooltip>
+            </Space>
+            <Row gutter={16} style={{ marginBottom: 12 }}>
+              <Col span={8}>
+                <Statistic
+                  title={<span style={{ fontSize: 12 }}>已用时间</span>}
+                  value={getTimeoutInfo().elapsedFormatted}
+                  valueStyle={{ fontSize: 16 }}
+                />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title={<span style={{ fontSize: 12 }}>{getTimeoutInfo().isFinished ? '最终耗时' : '剩余时间'}</span>}
+                  value={getTimeoutInfo().isFinished ? getTimeoutInfo().elapsedFormatted : getTimeoutInfo().remainingFormatted}
+                  valueStyle={{ 
+                    fontSize: 16, 
+                    color: !getTimeoutInfo().isFinished && getTimeoutInfo().remainingSeconds < 60 ? '#ff4d4f' : undefined
+                  }}
+                  suffix={!getTimeoutInfo().isFinished && getTimeoutInfo().remainingSeconds < 60 ? '⚠️' : ''}
+                />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title={<span style={{ fontSize: 12 }}>超时配置</span>}
+                  value={getTimeoutInfo().timeoutFormatted}
+                  valueStyle={{ fontSize: 16 }}
+                />
+              </Col>
+            </Row>
+            <Progress
+              percent={Math.round(getTimeoutInfo().percent)}
+              status={getTimeoutInfo().isFinished 
+                ? (instance.status === 'COMPLETED' ? 'success' : 'exception')
+                : getTimeoutInfo().status
+              }
+              strokeColor={{
+                '0%': '#108ee9',
+                '100%': getTimeoutInfo().percent >= 90 ? '#ff4d4f' : getTimeoutInfo().percent >= 70 ? '#faad14' : '#52c41a'
+              }}
+              format={(percent) => `${percent}%`}
+            />
+          </div>
+        )}
       </Card>
 
       <Card title="步骤执行记录" style={{ marginTop: 16 }}>

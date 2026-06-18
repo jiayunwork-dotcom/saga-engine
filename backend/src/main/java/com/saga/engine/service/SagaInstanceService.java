@@ -2,10 +2,12 @@ package com.saga.engine.service;
 
 import com.saga.engine.dto.SagaInstanceDTO;
 import com.saga.engine.dto.StepExecutionDTO;
+import com.saga.engine.entity.SagaDefinition;
 import com.saga.engine.entity.SagaInstance;
 import com.saga.engine.entity.StepExecution;
 import com.saga.engine.enums.SagaStatus;
 import com.saga.engine.enums.StepStatus;
+import com.saga.engine.repository.SagaDefinitionRepository;
 import com.saga.engine.repository.SagaInstanceRepository;
 import com.saga.engine.repository.StepExecutionRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class SagaInstanceService {
 
     private final SagaInstanceRepository sagaInstanceRepository;
     private final StepExecutionRepository stepExecutionRepository;
+    private final SagaDefinitionRepository sagaDefinitionRepository;
 
     public Page<SagaInstanceDTO> getInstances(SagaStatus status, String sagaName, Pageable pageable) {
         Page<SagaInstance> instances;
@@ -134,6 +137,20 @@ public class SagaInstanceService {
         dto.setInputData(entity.getInputData());
         dto.setOutputData(entity.getOutputData());
         dto.setErrorMessage(entity.getErrorMessage());
+        
+        Integer globalTimeout = 300;
+        try {
+            SagaDefinition definition = sagaDefinitionRepository
+                    .findByNameAndVersion(entity.getSagaDefinitionName(), entity.getSagaDefinitionVersion())
+                    .orElse(null);
+            if (definition != null && definition.getGlobalTimeoutSeconds() != null) {
+                globalTimeout = definition.getGlobalTimeoutSeconds();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch saga definition for global timeout", e);
+        }
+        dto.setGlobalTimeoutSeconds(globalTimeout);
+        
         dto.setStartedAt(entity.getStartedAt());
         dto.setCompletedAt(entity.getCompletedAt());
         dto.setCreatedAt(entity.getCreatedAt());

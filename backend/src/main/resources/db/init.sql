@@ -5,11 +5,14 @@ CREATE TABLE IF NOT EXISTS saga_definition (
     description TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     definition JSONB NOT NULL,
+    global_timeout_seconds INTEGER NOT NULL DEFAULT 300,
     created_by VARCHAR(100) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, version)
 );
+
+ALTER TABLE saga_definition ADD COLUMN IF NOT EXISTS global_timeout_seconds INTEGER NOT NULL DEFAULT 300;
 
 CREATE INDEX IF NOT EXISTS idx_saga_definition_name ON saga_definition(name);
 

@@ -14,6 +14,7 @@ public class SagaDefinitionDTO {
     private String description;
     private Integer version;
     private List<Map<String, Object>> definition;
+    private Integer globalTimeoutSeconds;
     private String createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

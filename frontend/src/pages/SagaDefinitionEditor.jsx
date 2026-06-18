@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { 
   Card, Form, Input, Button, Space, Tabs, Empty, message, Tag,
-  Row, Col, Statistic, Alert, Divider
+  Row, Col, Statistic, Alert, Divider, InputNumber, Tooltip
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
@@ -10,7 +10,8 @@ import {
   SwapOutlined,
   SyncOutlined,
   InfoCircleOutlined,
-  PlusOutlined
+  PlusOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../services/api'
@@ -26,6 +27,7 @@ const SagaDefinitionEditor = () => {
   const [steps, setSteps] = useState([])
   const [edges, setEdges] = useState([])
   const [loading, setLoading] = useState(false)
+  const [globalTimeoutSeconds, setGlobalTimeoutSeconds] = useState(300)
 
   useEffect(() => {
     if (isEdit) {
@@ -42,6 +44,7 @@ const SagaDefinitionEditor = () => {
         name: data.name,
         description: data.description
       })
+      setGlobalTimeoutSeconds(data.globalTimeoutSeconds || 300)
       setSteps(data.definition || [])
     } catch (error) {
       message.error('加载Saga定义失败')
@@ -68,7 +71,8 @@ const SagaDefinitionEditor = () => {
       const requestData = {
         name: values.name,
         description: values.description,
-        definition: steps
+        definition: steps,
+        globalTimeoutSeconds: globalTimeoutSeconds
       }
 
       if (isEdit) {
@@ -126,6 +130,24 @@ const SagaDefinitionEditor = () => {
           </Form.Item>
           <Form.Item name="description" label="描述" style={{ marginBottom: 0, flex: 1, minWidth: 300 }}>
             <Input placeholder="请输入描述" size="small" />
+          </Form.Item>
+          <Form.Item
+            label={
+              <Tooltip title="整个Saga实例从开始到结束的最大执行时间,超过后将强制中止并触发补偿">
+                <span><ClockCircleOutlined style={{ marginRight: 4 }} />全局超时(秒)</span>
+              </Tooltip>
+            }
+            style={{ marginBottom: 0 }}
+          >
+            <InputNumber
+              min={10}
+              max={86400}
+              value={globalTimeoutSeconds}
+              onChange={setGlobalTimeoutSeconds}
+              disabled={!isAdmin()}
+              size="small"
+              style={{ width: 120 }}
+            />
           </Form.Item>
         </Form>
 

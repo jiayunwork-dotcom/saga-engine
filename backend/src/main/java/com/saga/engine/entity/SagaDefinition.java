@@ -33,6 +33,9 @@ public class SagaDefinition {
     @Column(nullable = false, columnDefinition = "jsonb")
     private List<Map<String, Object>> definition;
 
+    @Column(name = "global_timeout_seconds", nullable = false)
+    private Integer globalTimeoutSeconds = 300;
+
     @Column(name = "created_by", nullable = false, length = 100)
     private String createdBy;
 

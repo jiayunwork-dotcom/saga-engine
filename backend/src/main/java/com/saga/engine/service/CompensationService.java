@@ -40,6 +40,7 @@ public class CompensationService {
     private final RetryService retryService;
     private final HttpCallerService httpCallerService;
     private final ObjectMapper objectMapper;
+    private final ExpressionEvaluatorService expressionEvaluatorService;
 
     @Value("${saga.compensation-max-retries:5}")
     private int compensationMaxRetries;
@@ -159,22 +160,23 @@ public class CompensationService {
                 headers.put("X-Saga-Idempotency-Key", idempotencyKey);
                 headers.put("X-Saga-Compensation", "true");
 
-                Map<String, Object> context = new HashMap<>();
+                Map<String, Object> stepsContext = new HashMap<>();
                 if (step.getResponseBody() != null) {
                     try {
                         Map<String, Object> responseMap = objectMapper.readValue(
                                 step.getResponseBody(), 
                                 new TypeReference<Map<String, Object>>() {});
-                        context.putAll(responseMap);
+                        stepsContext.put(step.getStepId() + "_response", responseMap);
                     } catch (Exception e) {
-                        context.put("response", step.getResponseBody());
+                        stepsContext.put(step.getStepId() + "_response", step.getResponseBody());
                     }
                 }
 
-                String body = bodyTemplate != null ? resolveTemplate(bodyTemplate, context) : null;
+                String resolvedUrl = expressionEvaluatorService.resolveTemplate(url, stepsContext, instance.getInputData());
+                String body = bodyTemplate != null ? expressionEvaluatorService.resolveTemplate(bodyTemplate, stepsContext, instance.getInputData()) : null;
 
                 HttpCallerService.HttpResult result = httpCallerService.executeCall(
-                        url, method, body, headers, 30);
+                        resolvedUrl, method, body, headers, 30);
 
                 if (result.isSuccess()) {
                     success = true;
@@ -222,20 +224,6 @@ public class CompensationService {
             log.error("Error getting step definition", e);
         }
         return null;
-    }
-
-    private String resolveTemplate(String template, Map<String, Object> context) {
-        if (template == null) {
-            return null;
-        }
-        String result = template;
-        for (Map.Entry<String, Object> entry : context.entrySet()) {
-            String placeholder = "${" + entry.getKey() + "}";
-            if (entry.getValue() != null) {
-                result = result.replace(placeholder, entry.getValue().toString());
-            }
-        }
-        return result;
     }
 
     @Transactional

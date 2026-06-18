@@ -1,12 +1,13 @@
 import { Handle, Position } from 'reactflow'
-import { Tag } from 'antd'
+import { Tag, Tooltip } from 'antd'
 import { 
   PlayCircleOutlined, 
   SwapOutlined, 
   SyncOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  FilterOutlined
 } from '@ant-design/icons'
 
 const getStepTypeColor = (type) => {
@@ -23,7 +24,8 @@ const getStatusIcon = (status) => {
   const icons = {
     COMPLETED: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
     FAILED: <CloseCircleOutlined style={{ color: '#ff4d4f' }} />,
-    RUNNING: <ClockCircleOutlined style={{ color: '#1890ff' }} spin />
+    RUNNING: <ClockCircleOutlined style={{ color: '#1890ff' }} spin />,
+    SKIPPED: <CheckCircleOutlined style={{ color: '#8c8c8c' }} />
   }
   return icons[status]
 }
@@ -48,6 +50,7 @@ const getStepTypeLabel = (type) => {
 
 export const StepNode = ({ data, selected }) => {
   const colors = getStepTypeColor(data.type)
+  const hasCondition = data.condition && data.condition.trim().length > 0
   
   return (
     <div 
@@ -59,7 +62,8 @@ export const StepNode = ({ data, selected }) => {
         minWidth: '160px',
         textAlign: 'center',
         boxShadow: selected ? '0 2px 8px rgba(24, 144, 255, 0.3)' : '0 2px 4px rgba(0,0,0,0.1)',
-        transition: 'all 0.2s'
+        transition: 'all 0.2s',
+        position: 'relative'
       }}
     >
       <Handle 
@@ -67,6 +71,39 @@ export const StepNode = ({ data, selected }) => {
         position={Position.Top} 
         style={{ background: colors.border, width: 12, height: 12 }}
       />
+      
+      {hasCondition && (
+        <Tooltip 
+          title={
+            <div>
+              <div style={{ fontWeight: 'bold', marginBottom: 4 }}>执行条件</div>
+              <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4, display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxWidth: 300 }}>
+                {data.condition}
+              </code>
+            </div>
+          }
+        >
+          <div style={{
+            position: 'absolute',
+            top: -10,
+            right: -10,
+            width: 24,
+            height: 24,
+            background: '#fa8c16',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontSize: 12,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            cursor: 'help',
+            zIndex: 10
+          }}>
+            <FilterOutlined />
+          </div>
+        </Tooltip>
+      )}
       
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
         <span style={{ color: colors.text }}>{getStepTypeIcon(data.type)}</span>

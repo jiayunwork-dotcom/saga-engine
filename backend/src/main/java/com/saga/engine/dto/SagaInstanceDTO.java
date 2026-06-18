@@ -18,6 +18,7 @@ public class SagaInstanceDTO {
     private Map<String, Object> inputData;
     private Map<String, Object> outputData;
     private String errorMessage;
+    private Integer globalTimeoutSeconds;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;

@@ -6,7 +6,8 @@ import {
   PlayCircleOutlined, 
   WarningOutlined,
   UserOutlined,
-  LogoutOutlined
+  LogoutOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons'
 import { useAuthStore } from '../../store/authStore'
 
@@ -33,6 +34,11 @@ const MainLayout = ({ children }) => {
       icon: <PlayCircleOutlined />,
       label: '实例监控'
     },
+    {
+      key: '/templates',
+      icon: <AppstoreOutlined />,
+      label: '模板市场'
+    },
     ...(isAdmin() ? [{
       key: '/dead-letter',
       icon: <WarningOutlined />,
@@ -58,6 +64,8 @@ const MainLayout = ({ children }) => {
     }
   ]
 
+  const selectedKey = '/' + location.pathname.split('/').filter(Boolean)[0]
+
   return (
     <Layout className="app-layout">
       <Header className="app-header">
@@ -73,7 +81,7 @@ const MainLayout = ({ children }) => {
         <Sider width={200} style={{ background: '#fff' }}>
           <Menu
             mode="inline"
-            selectedKeys={[location.pathname]}
+            selectedKeys={[selectedKey]}
             items={menuItems}
             onClick={handleMenuClick}
             style={{ height: '100%', borderRight: 0 }}

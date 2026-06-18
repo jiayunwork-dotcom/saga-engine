@@ -8,6 +8,8 @@ import SagaDefinitionEditor from './pages/SagaDefinitionEditor.jsx'
 import SagaInstances from './pages/SagaInstances.jsx'
 import SagaInstanceDetail from './pages/SagaInstanceDetail.jsx'
 import DeadLetterQueue from './pages/DeadLetterQueue.jsx'
+import TemplateMarket from './pages/TemplateMarket.jsx'
+import TemplateDetail from './pages/TemplateDetail.jsx'
 
 function App() {
   const { isAuthenticated } = useAuthStore()
@@ -31,6 +33,8 @@ function App() {
         <Route path="/instances" element={<SagaInstances />} />
         <Route path="/instances/:id" element={<SagaInstanceDetail />} />
         <Route path="/dead-letter" element={<DeadLetterQueue />} />
+        <Route path="/templates" element={<TemplateMarket />} />
+        <Route path="/templates/:id" element={<TemplateDetail />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </MainLayout>

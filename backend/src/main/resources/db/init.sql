@@ -123,3 +123,38 @@ WHERE NOT EXISTS (SELECT 1 FROM saga_user WHERE username = 'admin');
 INSERT INTO saga_user (username, password, role, email)
 SELECT 'operator', '$2a$10$UTd3que5gNrC/p0ui0MZFeHab4gYtgZHlcy1K.HXwA3999IiQE2XS', 'OPERATOR', 'operator@saga.com'
 WHERE NOT EXISTS (SELECT 1 FROM saga_user WHERE username = 'operator');
+
+-- Saga模板主表
+CREATE TABLE IF NOT EXISTS saga_template (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_tags JSONB,
+    version VARCHAR(50) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING_REVIEW',
+    publisher VARCHAR(100) NOT NULL,
+    reviewer VARCHAR(100),
+    step_definition JSONB NOT NULL,
+    download_count INTEGER NOT NULL DEFAULT 0,
+    scene_description TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP,
+    UNIQUE(name, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saga_template_name ON saga_template(name);
+CREATE INDEX IF NOT EXISTS idx_saga_template_status ON saga_template(status);
+CREATE INDEX IF NOT EXISTS idx_saga_template_category ON saga_template USING gin(category_tags);
+
+-- 模板评分表
+CREATE TABLE IF NOT EXISTS template_rating (
+    id BIGSERIAL PRIMARY KEY,
+    template_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    score INTEGER NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(template_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_rating_template_id ON template_rating(template_id);

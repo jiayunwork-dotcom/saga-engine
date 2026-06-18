@@ -43,4 +43,15 @@ api.interceptors.response.use(
   }
 )
 
+export const templateApi = {
+  publish: (data) => api.post('/templates/publish', data),
+  review: (data) => api.post('/templates/review', data),
+  search: (params) => api.get('/templates/search', { params }),
+  getDetail: (id) => api.get(`/templates/${id}`),
+  getVersions: (name) => api.get(`/templates/${name}/versions`),
+  importTemplate: (data) => api.post('/templates/import', data),
+  submitRating: (data) => api.post('/templates/rate', data),
+  getRatings: (id) => api.get(`/templates/${id}/ratings`)
+}
+
 export default api

@@ -28,4 +28,7 @@ public class PublishTemplateRequest {
     private List<Map<String, Object>> stepDefinition;
 
     private String sceneDescription;
+
+    @Size(max = 3, message = "依赖模板最多3个")
+    private List<String> dependencies;
 }

@@ -54,6 +54,13 @@ public class SagaTemplate {
     @Column(name = "scene_description", columnDefinition = "text")
     private String sceneDescription;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "dependencies", columnDefinition = "jsonb")
+    private List<String> dependencies;
+
+    @Column(name = "review_comment", columnDefinition = "text")
+    private String reviewComment;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

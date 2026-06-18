@@ -20,6 +20,10 @@ public class TemplateDTO {
     private List<Map<String, Object>> stepDefinition;
     private Integer downloadCount;
     private String sceneDescription;
+    private List<String> dependencies;
+    private List<TemplateDTO> dependencyTemplates;
+    private String reviewComment;
+    private Boolean favorited;
     private LocalDateTime createdAt;
     private LocalDateTime reviewedAt;
     private Double averageScore;

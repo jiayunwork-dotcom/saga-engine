@@ -5,7 +5,8 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined, ImportOutlined, DownloadOutlined,
-  UserOutlined, ClockCircleOutlined, StarOutlined, HistoryOutlined
+  UserOutlined, ClockCircleOutlined, StarOutlined, StarFilled, HistoryOutlined,
+  RollbackOutlined, EditOutlined
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import { templateApi } from '../services/api'
@@ -23,6 +24,13 @@ const CATEGORY_COLORS = {
   '其他': 'default'
 }
 
+const STATUS_MAP = {
+  PUBLISHED: { color: 'green', text: '已上架' },
+  PENDING_REVIEW: { color: 'orange', text: '待审核' },
+  REJECTED: { color: 'red', text: '已拒绝' },
+  REVISION_REQUIRED: { color: 'warning', text: '退回修改' }
+}
+
 const TemplateDetail = () => {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -32,9 +40,15 @@ const TemplateDetail = () => {
   const [loading, setLoading] = useState(false)
   const [importModalVisible, setImportModalVisible] = useState(false)
   const [ratingModalVisible, setRatingModalVisible] = useState(false)
+  const [resubmitModalVisible, setResubmitModalVisible] = useState(false)
   const [importForm] = Form.useForm()
   const [ratingForm] = Form.useForm()
+  const [resubmitForm] = Form.useForm()
   const [importing, setImporting] = useState(false)
+  const [resubmitting, setResubmitting] = useState(false)
+  const [unmetDependencies, setUnmetDependencies] = useState([])
+
+  const currentUser = JSON.parse(localStorage.getItem('user') || 'null')
 
   useEffect(() => {
     loadTemplateDetail()
@@ -103,6 +117,7 @@ const TemplateDetail = () => {
 
   const handleImportClick = () => {
     importForm.resetFields()
+    setUnmetDependencies([])
     setImportModalVisible(true)
   }
 
@@ -131,9 +146,15 @@ const TemplateDetail = () => {
         templateId: parseInt(id),
         urlMappings
       })
-      message.success('模板导入成功')
+      const result = res.data.data
+      if (result.unmetDependencies && result.unmetDependencies.length > 0) {
+        setUnmetDependencies(result.unmetDependencies)
+        message.warning('导入成功，但存在未满足的前置模板依赖')
+      } else {
+        message.success('模板导入成功')
+      }
       setImportModalVisible(false)
-      navigate(`/definitions/${res.data.data.id}/edit`)
+      navigate(`/definitions/${result.definition.id}/edit`)
     } catch (error) {
       if (error.errorFields) {
         message.error('请填写所有必填项')
@@ -164,6 +185,58 @@ const TemplateDetail = () => {
     }
   }
 
+  const handleFavoriteClick = async () => {
+    try {
+      await templateApi.toggleFavorite(template.id)
+      setTemplate(prev => ({ ...prev, favorited: !prev.favorited }))
+      message.success(template.favorited ? '已取消收藏' : '收藏成功')
+    } catch (error) {
+      message.error('操作失败')
+    }
+  }
+
+  const handleResubmitClick = () => {
+    resubmitForm.setFieldsValue({
+      description: template.description,
+      sceneDescription: template.sceneDescription,
+      categoryTags: template.categoryTags,
+      stepDefinition: template.stepDefinition,
+      dependencies: template.dependencies
+    })
+    setResubmitModalVisible(true)
+  }
+
+  const handleResubmitConfirm = async () => {
+    try {
+      const values = await resubmitForm.validateFields()
+      setResubmitting(true)
+      await templateApi.resubmit(id, {
+        name: template.name,
+        version: template.version,
+        description: values.description,
+        sceneDescription: values.sceneDescription,
+        categoryTags: values.categoryTags || [],
+        stepDefinition: template.stepDefinition,
+        dependencies: values.dependencies || []
+      })
+      message.success('重新提交成功')
+      setResubmitModalVisible(false)
+      loadTemplateDetail()
+    } catch (error) {
+      if (error.errorFields) {
+        message.error('请填写所有必填项')
+      } else {
+        message.error(error.response?.data?.message || '提交失败')
+      }
+    } finally {
+      setResubmitting(false)
+    }
+  }
+
+  const handleDependencyClick = (depId) => {
+    navigate(`/templates/${depId}`)
+  }
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>
   }
@@ -172,11 +245,14 @@ const TemplateDetail = () => {
     return <Empty description="模板不存在" />
   }
 
+  const statusInfo = STATUS_MAP[template.status] || { color: 'default', text: template.status }
+  const isPublisher = currentUser && template.publisher === currentUser.username
+  const canResubmit = template.status === 'REVISION_REQUIRED' && isPublisher
+
   const versionColumns = [
     { title: '版本', dataIndex: 'version', key: 'version', width: 100, render: v => <Tag color="blue">v{v}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: s => {
-      const map = { PUBLISHED: { color: 'green', text: '已上架' }, PENDING_REVIEW: { color: 'orange', text: '待审核' }, REJECTED: { color: 'red', text: '已拒绝' } }
-      const info = map[s] || { color: 'default', text: s }
+      const info = STATUS_MAP[s] || { color: 'default', text: s }
       return <Tag color={info.color}>{info.text}</Tag>
     }},
     { title: '发布者', dataIndex: 'publisher', key: 'publisher', width: 100 },
@@ -194,11 +270,33 @@ const TemplateDetail = () => {
                 返回
               </Button>
               <span style={{ fontSize: 16, fontWeight: 'bold' }}>模板详情 - {template.name}</span>
+              <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
             </Space>
           }
         >
           <div style={{ padding: '8px 0' }}>
-            <h2 style={{ marginBottom: 8 }}>{template.name} <Tag color="blue">v{template.version}</Tag></h2>
+            <h2 style={{ marginBottom: 8 }}>
+              {template.name} <Tag color="blue">v{template.version}</Tag>
+              <Button
+                type="text"
+                icon={template.favorited ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+                onClick={handleFavoriteClick}
+                style={{ marginLeft: 8 }}
+              >
+                {template.favorited ? '已收藏' : '收藏'}
+              </Button>
+            </h2>
+
+            {template.status === 'REVISION_REQUIRED' && template.reviewComment && (
+              <Alert
+                type="warning"
+                showIcon
+                message="审核退回意见"
+                description={template.reviewComment}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
             {template.sceneDescription && (
               <Alert
                 type="info"
@@ -209,6 +307,25 @@ const TemplateDetail = () => {
               />
             )}
             <p style={{ color: '#666', lineHeight: 1.8 }}>{template.description || '暂无详细描述'}</p>
+
+            {template.dependencyTemplates && template.dependencyTemplates.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <Divider style={{ margin: '12px 0' }} />
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>前置模板（依赖）：</div>
+                <Space wrap>
+                  {template.dependencyTemplates.map((dep, idx) => (
+                    <Tag
+                      key={idx}
+                      color="blue"
+                      style={{ cursor: 'pointer', padding: '4px 12px' }}
+                      onClick={() => handleDependencyClick(dep.id)}
+                    >
+                      {dep.name} v{dep.version}
+                    </Tag>
+                  ))}
+                </Space>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -264,6 +381,11 @@ const TemplateDetail = () => {
                 ))}
               </Space>
             </Descriptions.Item>
+            {template.reviewer && (
+              <Descriptions.Item label="审核人">
+                {template.reviewer}
+              </Descriptions.Item>
+            )}
           </Descriptions>
         </Card>
 
@@ -317,15 +439,36 @@ const TemplateDetail = () => {
         </Card>
 
         <Card size="small" title="操作">
-          <Button
-            type="primary"
-            icon={<ImportOutlined />}
-            block
-            size="large"
-            onClick={handleImportClick}
-          >
-            导入到我的Saga
-          </Button>
+          {template.status === 'PUBLISHED' && (
+            <Button
+              type="primary"
+              icon={<ImportOutlined />}
+              block
+              size="large"
+              onClick={handleImportClick}
+            >
+              导入到我的Saga
+            </Button>
+          )}
+          {canResubmit && (
+            <Button
+              type="primary"
+              icon={<RollbackOutlined />}
+              block
+              size="large"
+              onClick={handleResubmitClick}
+            >
+              重新提交审核
+            </Button>
+          )}
+          {template.status !== 'PUBLISHED' && !canResubmit && (
+            <Alert
+              type="info"
+              showIcon
+              message="模板状态"
+              description={statusInfo.text + '状态的模板暂不可导入'}
+            />
+          )}
         </Card>
       </div>
 
@@ -349,6 +492,24 @@ const TemplateDetail = () => {
           message="请为模板中的每个占位符URL填写真实的服务地址"
           style={{ marginBottom: 16 }}
         />
+        {template.dependencies && template.dependencies.length > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            message="前置模板依赖"
+            description={
+              <div>
+                该模板依赖以下前置模板，请确保您已导入：
+                <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                  {template.dependencies.map((dep, idx) => (
+                    <li key={idx}>{dep}</li>
+                  ))}
+                </ul>
+              </div>
+            }
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Form form={importForm} layout="vertical">
           {placeholderUrls.map((p) => (
             <Form.Item
@@ -392,6 +553,57 @@ const TemplateDetail = () => {
           </Form.Item>
           <Form.Item name="comment" label="评语">
             <Input.TextArea rows={3} placeholder="请输入评语（可选）" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="重新提交审核"
+        open={resubmitModalVisible}
+        onCancel={() => setResubmitModalVisible(false)}
+        width={600}
+        footer={
+          <Space>
+            <Button onClick={() => setResubmitModalVisible(false)}>取消</Button>
+            <Button type="primary" loading={resubmitting} onClick={handleResubmitConfirm}>
+              提交
+            </Button>
+          </Space>
+        }
+      >
+        {template.reviewComment && (
+          <Alert
+            type="warning"
+            showIcon
+            message="修改意见"
+            description={template.reviewComment}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+        <Form form={resubmitForm} layout="vertical">
+          <Form.Item
+            name="description"
+            label="模板描述"
+            rules={[{ required: true, message: '请输入模板描述' }]}
+          >
+            <Input.TextArea rows={3} placeholder="请输入模板描述" />
+          </Form.Item>
+          <Form.Item
+            name="sceneDescription"
+            label="适用场景"
+          >
+            <Input.TextArea rows={2} placeholder="请输入适用场景描述（可选）" />
+          </Form.Item>
+          <Form.Item
+            name="dependencies"
+            label="依赖模板（最多3个）"
+          >
+            <Select
+              mode="tags"
+              placeholder="选择或输入依赖的模板名称"
+              style={{ width: '100%' }}
+              maxTagCount={3}
+            />
           </Form.Item>
         </Form>
       </Modal>

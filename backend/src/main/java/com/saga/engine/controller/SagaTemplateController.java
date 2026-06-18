@@ -39,20 +39,42 @@ public class SagaTemplateController {
         return ResponseEntity.ok(ApiResponse.success(template));
     }
 
+    @PostMapping("/{id}/resubmit")
+    public ResponseEntity<ApiResponse<TemplateDTO>> resubmitTemplate(
+            @PathVariable Long id,
+            @Valid @RequestBody PublishTemplateRequest request,
+            Authentication authentication) {
+        String username = authentication.getName();
+        TemplateDTO template = sagaTemplateService.resubmitTemplate(id, request, username);
+        return ResponseEntity.ok(ApiResponse.success(template));
+    }
+
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<Page<TemplateDTO>>> searchTemplates(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy) {
-        Page<TemplateDTO> templates = sagaTemplateService.searchTemplates(keyword, category, page, size, sortBy);
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "false") boolean onlyFavorites,
+            Authentication authentication) {
+        Long userId = null;
+        if (authentication != null && authentication.isAuthenticated()) {
+            userId = getUserIdFromAuth(authentication);
+        }
+        Page<TemplateDTO> templates = sagaTemplateService.searchTemplates(keyword, category, page, size, sortBy, userId, onlyFavorites);
         return ResponseEntity.ok(ApiResponse.success(templates));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<TemplateDTO>> getTemplateDetail(@PathVariable Long id) {
-        TemplateDTO template = sagaTemplateService.getTemplateDetail(id);
+    public ResponseEntity<ApiResponse<TemplateDTO>> getTemplateDetail(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Long userId = null;
+        if (authentication != null && authentication.isAuthenticated()) {
+            userId = getUserIdFromAuth(authentication);
+        }
+        TemplateDTO template = sagaTemplateService.getTemplateDetail(id, userId);
         return ResponseEntity.ok(ApiResponse.success(template));
     }
 
@@ -63,13 +85,13 @@ public class SagaTemplateController {
     }
 
     @PostMapping("/import")
-    public ResponseEntity<ApiResponse<SagaDefinitionDTO>> importTemplate(
+    public ResponseEntity<ApiResponse<ImportResultDTO>> importTemplate(
             @Valid @RequestBody ImportTemplateRequest request,
             Authentication authentication) {
         String username = authentication.getName();
         Long userId = getUserIdFromAuth(authentication);
-        SagaDefinitionDTO definition = sagaTemplateService.importTemplate(request, username);
-        return ResponseEntity.ok(ApiResponse.success(definition));
+        ImportResultDTO result = sagaTemplateService.importTemplate(request, username, userId);
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @PostMapping("/rate")
@@ -85,6 +107,15 @@ public class SagaTemplateController {
     public ResponseEntity<ApiResponse<List<TemplateRatingDTO>>> getTemplateRatings(@PathVariable Long id) {
         List<TemplateRatingDTO> ratings = sagaTemplateService.getTemplateRatings(id);
         return ResponseEntity.ok(ApiResponse.success(ratings));
+    }
+
+    @PostMapping("/{id}/favorite")
+    public ResponseEntity<ApiResponse<Void>> toggleFavorite(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Long userId = getUserIdFromAuth(authentication);
+        sagaTemplateService.toggleFavorite(id, userId);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     private Long getUserIdFromAuth(Authentication authentication) {

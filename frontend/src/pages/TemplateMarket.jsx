@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Card, Input, Select, Row, Col, Tag, Empty, Spin, Rate, Space, message } from 'antd'
-import { SearchOutlined, AppstoreOutlined, DownloadOutlined, UserOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Card, Input, Select, Row, Col, Tag, Empty, Spin, Rate, Space, message, Tabs } from 'antd'
+import { SearchOutlined, AppstoreOutlined, DownloadOutlined, UserOutlined, ClockCircleOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { templateApi } from '../services/api'
 import dayjs from 'dayjs'
@@ -35,11 +35,12 @@ const TemplateMarket = () => {
   const [keyword, setKeyword] = useState('')
   const [category, setCategory] = useState('')
   const [sortBy, setSortBy] = useState('createdAt')
+  const [activeTab, setActiveTab] = useState('all')
   const [pagination, setPagination] = useState({ current: 1, pageSize: 12, total: 0 })
 
   useEffect(() => {
     loadTemplates()
-  }, [keyword, category, sortBy, pagination.current])
+  }, [keyword, category, sortBy, pagination.current, activeTab])
 
   const loadTemplates = async () => {
     setLoading(true)
@@ -49,7 +50,8 @@ const TemplateMarket = () => {
         category: category || undefined,
         page: pagination.current - 1,
         size: pagination.pageSize,
-        sortBy
+        sortBy,
+        onlyFavorites: activeTab === 'favorites'
       })
       const pageData = res.data.data
       setTemplates(pageData.content || [])
@@ -65,13 +67,39 @@ const TemplateMarket = () => {
     navigate(`/templates/${id}`)
   }
 
+  const handleFavoriteClick = async (e, template) => {
+    e.stopPropagation()
+    try {
+      await templateApi.toggleFavorite(template.id)
+      setTemplates(prev => prev.map(t =>
+        t.id === template.id ? { ...t, favorited: !t.favorited } : t
+      ))
+      message.success(template.favorited ? '已取消收藏' : '收藏成功')
+    } catch (error) {
+      message.error('操作失败')
+    }
+  }
+
   const truncateDesc = (desc, maxLen = 100) => {
     if (!desc) return '暂无描述'
     return desc.length > maxLen ? desc.substring(0, maxLen) + '...' : desc
   }
 
+  const tabItems = [
+    { key: 'all', label: '全部模板' },
+    { key: 'favorites', label: '我的收藏' }
+  ]
+
   return (
     <div>
+      <div style={{ marginBottom: 16 }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={tabItems}
+        />
+      </div>
+
       <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
         <Input
           placeholder="搜索模板名称、描述"
@@ -100,7 +128,8 @@ const TemplateMarket = () => {
             style={{ width: 150 }}
             options={[
               { value: 'createdAt', label: '按发布时间' },
-              { value: 'downloadCount', label: '按下载次数' }
+              { value: 'downloadCount', label: '按下载次数' },
+              { value: 'rating', label: '按评分排序' }
             ]}
           />
         </Space>
@@ -108,7 +137,7 @@ const TemplateMarket = () => {
 
       <Spin spinning={loading}>
         {templates.length === 0 && !loading ? (
-          <Empty description="暂无模板" />
+          <Empty description={activeTab === 'favorites' ? '暂无收藏模板' : '暂无模板'} />
         ) : (
           <Row gutter={[16, 16]}>
             {templates.map((template) => (
@@ -150,14 +179,22 @@ const TemplateMarket = () => {
                       <span><DownloadOutlined /> {template.downloadCount}</span>
                       <span><ClockCircleOutlined /> {dayjs(template.createdAt).format('MM-DD')}</span>
                     </Space>
-                    {template.ratingCount > 0 ? (
-                      <Space size={4}>
-                        <Rate disabled value={Math.round(template.averageScore)} style={{ fontSize: 12 }} />
-                        <span>{template.averageScore}</span>
-                      </Space>
-                    ) : (
-                      <span>暂无评分</span>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {template.ratingCount > 0 ? (
+                        <Space size={4}>
+                          <Rate disabled value={Math.round(template.averageScore)} style={{ fontSize: 12 }} />
+                          <span>{template.averageScore}</span>
+                        </Space>
+                      ) : (
+                        <span>暂无评分</span>
+                      )}
+                      <span
+                        onClick={(e) => handleFavoriteClick(e, template)}
+                        style={{ cursor: 'pointer', color: template.favorited ? '#faad14' : '#d9d9d9', fontSize: 16 }}
+                      >
+                        {template.favorited ? <StarFilled /> : <StarOutlined />}
+                      </span>
+                    </div>
                   </div>
                 </Card>
               </Col>

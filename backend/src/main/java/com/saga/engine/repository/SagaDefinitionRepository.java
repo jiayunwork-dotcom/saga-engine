@@ -24,4 +24,7 @@ public interface SagaDefinitionRepository extends JpaRepository<SagaDefinition, 
 
     @Query("SELECT DISTINCT s.name FROM SagaDefinition s ORDER BY s.name")
     List<String> findAllDistinctNames();
+
+    @Query("SELECT DISTINCT s.name FROM SagaDefinition s WHERE s.createdBy = :createdBy ORDER BY s.name")
+    List<String> findDistinctNamesByCreatedBy(@Param("createdBy") String createdBy);
 }

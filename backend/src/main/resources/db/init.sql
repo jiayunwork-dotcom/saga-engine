@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS saga_template (
     step_definition JSONB NOT NULL,
     download_count INTEGER NOT NULL DEFAULT 0,
     scene_description TEXT,
+    dependencies JSONB,
+    review_comment TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reviewed_at TIMESTAMP,
     UNIQUE(name, version)
@@ -145,6 +147,18 @@ CREATE TABLE IF NOT EXISTS saga_template (
 CREATE INDEX IF NOT EXISTS idx_saga_template_name ON saga_template(name);
 CREATE INDEX IF NOT EXISTS idx_saga_template_status ON saga_template(status);
 CREATE INDEX IF NOT EXISTS idx_saga_template_category ON saga_template USING gin(category_tags);
+
+-- 模板收藏表
+CREATE TABLE IF NOT EXISTS template_favorite (
+    id BIGSERIAL PRIMARY KEY,
+    template_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(template_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_favorite_template_id ON template_favorite(template_id);
+CREATE INDEX IF NOT EXISTS idx_template_favorite_user_id ON template_favorite(user_id);
 
 -- 模板评分表
 CREATE TABLE IF NOT EXISTS template_rating (

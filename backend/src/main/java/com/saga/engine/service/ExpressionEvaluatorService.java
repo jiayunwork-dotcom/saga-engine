@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.graalvm.polyglot.Context;
-import org.graalvm.polyglot.Value;
 import org.springframework.stereotype.Service;
 
+import javax.script.Bindings;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.SimpleBindings;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -21,6 +23,7 @@ public class ExpressionEvaluatorService {
 
     private final ObjectMapper objectMapper;
     private static final Pattern TEMPLATE_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
+    private final ScriptEngineManager scriptEngineManager = new ScriptEngineManager();
 
     public boolean evaluateCondition(String expression, Map<String, Object> stepsContext, Map<String, Object> inputData) {
         if (expression == null || expression.trim().isEmpty()) {
@@ -29,18 +32,25 @@ public class ExpressionEvaluatorService {
 
         Map<String, Object> context = buildContext(stepsContext, inputData);
 
-        try (Context jsContext = Context.newBuilder("js")
-                .allowAllAccess(false)
-                .allowHostAccess(org.graalvm.polyglot.HostAccess.NONE)
-                .build()) {
-
-            Value bindings = jsContext.getBindings("js");
-            for (Map.Entry<String, Object> entry : context.entrySet()) {
-                bindings.putMember(entry.getKey(), toJsCompatibleValue(entry.getValue()));
+        try {
+            ScriptEngine engine = scriptEngineManager.getEngineByName("graal.js");
+            if (engine == null) {
+                engine = scriptEngineManager.getEngineByName("JavaScript");
+            }
+            if (engine == null) {
+                throw new RuntimeException("JavaScript engine not available");
             }
 
-            Value result = jsContext.eval("js", expression);
-            return result.asBoolean();
+            Bindings bindings = new SimpleBindings();
+            for (Map.Entry<String, Object> entry : context.entrySet()) {
+                bindings.put(entry.getKey(), toJsCompatibleValue(entry.getValue()));
+            }
+
+            Object result = engine.eval(expression, bindings);
+            if (result instanceof Boolean) {
+                return (Boolean) result;
+            }
+            return Boolean.parseBoolean(String.valueOf(result));
         } catch (Exception e) {
             log.error("Failed to evaluate condition expression: {}", expression, e);
             throw new RuntimeException("Condition evaluation failed: " + e.getMessage(), e);
